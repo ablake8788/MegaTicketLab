@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Mega Millions Ticket Lab</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+</head>
+<body>
+<header><div><span class="eyebrow">NUMBER GENERATION LAB</span><h1>Mega Millions Ticket Lab</h1><p>Generate diversified tickets and compare them with a drawing.</p></div><div class="badge">5 / 70 + MB / 24</div></header>
+<main>
+<section class="panel controls">
+  <div><label for="count">Number of tickets</label><input id="count" type="number" min="1" max="100" value="5"></div>
+  <div><label for="strategy">Generation mode</label><select id="strategy"><option value="random">Random</option><option value="model">Historical Model</option><option value="v2" selected>V2 — 3+ Coverage Experiment</option></select></div>
+  <button id="generate">Generate tickets</button>
+</section>
+<div class="notice"><strong>Statistical note:</strong> Model modes organize selections using historical heuristics; they do not increase the mathematical odds of a valid Mega Millions combination.</div>
+<section class="panel"><div class="section-head"><div><span class="eyebrow">PORTFOLIO</span><h2>Generated Tickets</h2></div><button class="secondary" id="clear">Clear</button></div><div id="tickets" class="tickets"><p class="empty">Generate tickets to begin.</p></div></section>
+<section class="panel"><div class="section-head"><div><span class="eyebrow">BACKTEST</span><h2>Compare with Winning Numbers</h2></div></div>
+  <div class="winning-input"><div><label>Five white balls</label><div id="whiteInputs" class="white-inputs"><input type="number" min="1" max="70" placeholder="1"><input type="number" min="1" max="70" placeholder="20"><input type="number" min="1" max="70" placeholder="30"><input type="number" min="1" max="70" placeholder="46"><input type="number" min="1" max="70" placeholder="68"></div></div><div><label>Mega Ball</label><input id="winningMega" type="number" min="1" max="24" placeholder="17"></div><button id="compare" class="secondary">Compare</button></div>
+  <div id="message"></div>
+</section>
+</main>
+<footer>Experimental analysis application · Not affiliated with Mega Millions or any lottery.</footer>
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body></html>
