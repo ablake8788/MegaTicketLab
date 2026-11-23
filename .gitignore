@@ -33,3 +33,6 @@ data/
 build/
 dist/
 *.spec
+
+# Build logs
+*.log

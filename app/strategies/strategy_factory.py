@@ -2,6 +2,7 @@ from .random_strategy import RandomTicketStrategy
 from .model_strategy import HistoricalModelStrategy
 from .v2_strategy import V2PortfolioStrategy
 
+
 class StrategyFactory:
     _strategies = {
         "random": RandomTicketStrategy,
@@ -10,8 +11,8 @@ class StrategyFactory:
     }
 
     @classmethod
-    def create(cls, name: str):
+    def create(cls, name: str, game):
         strategy = cls._strategies.get((name or "").lower())
         if not strategy:
             raise ValueError(f"Unknown strategy '{name}'. Choose random, model, or v2.")
-        return strategy()
+        return strategy(game)

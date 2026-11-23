@@ -1,6 +1,6 @@
 import sys
 from pathlib import Path
-from flask import Flask
+from flask import Flask, jsonify
 from .config import Config
 from .routes.web import web_bp
 from .routes.api import api_bp
@@ -24,4 +24,10 @@ def create_app(config_class=Config):
     app.config.from_object(config_class)
     app.register_blueprint(web_bp)
     app.register_blueprint(api_bp)
+
+    @app.errorhandler(413)
+    def too_large(_exc):
+        limit = app.config.get("MAX_CONTENT_LENGTH", 0) // (1024 * 1024)
+        return jsonify({"error": f"File is too large (limit {limit} MB)."}), 413
+
     return app
