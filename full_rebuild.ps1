@@ -65,12 +65,31 @@ if (-not (Test-Path "run.py") -or -not (Test-Path "app")) {
 }
 
 # ------------------------------------------------------------------ 1. stop
-Step "1/7  Stopping running copies of MegaTicketLab.exe"
-$running = Get-Process -Name "MegaTicketLab" -ErrorAction SilentlyContinue
-if ($running) {
-    $running | Stop-Process -Force
-    Start-Sleep -Seconds 1
-    Ok "Stopped $($running.Count) process(es)."
+Step "1/7  Stopping MegaTicketLab.exe and Python processes running from .venv"
+$venvDir = Join-Path $PSScriptRoot ".venv"
+
+# Processes started from this project's .venv (the app via start_app.ps1, pytest,
+# a PyCharm run/console using this interpreter) lock its files.
+function Get-VenvProcesses {
+    Get-Process -ErrorAction SilentlyContinue | Where-Object {
+        $p = $_
+        $exePath = $null
+        try { $exePath = $p.Path } catch { }
+        if ($exePath -and $exePath.StartsWith($venvDir, [StringComparison]::OrdinalIgnoreCase)) { return $true }
+        # e.g. a Python started elsewhere that loaded a .pyd from .venv
+        if ($p.ProcessName -match '^(python|pythonw|py)$') {
+            try { return [bool]($p.Modules | Where-Object { $_.FileName -and $_.FileName.StartsWith($venvDir, [StringComparison]::OrdinalIgnoreCase) } | Select-Object -First 1) } catch { }
+        }
+        return $false
+    }
+}
+
+$toStop = @(Get-Process -Name "MegaTicketLab" -ErrorAction SilentlyContinue) + @(Get-VenvProcesses)
+$toStop = @($toStop | Where-Object { $_ } | Sort-Object Id -Unique)
+if ($toStop.Count) {
+    foreach ($p in $toStop) { Ok "Stopping $($p.ProcessName) (PID $($p.Id))" }
+    $toStop | Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 2
 } else {
     Ok "None running."
 }
@@ -79,13 +98,29 @@ if ($running) {
 Step "2/7  Cleaning old environment and build output"
 $toRemove = @(".venv", "build", "dist", ".pytest_cache", "MegaTicketLab.spec")
 foreach ($item in $toRemove) {
-    if (Test-Path $item) {
+    if (-not (Test-Path $item)) { continue }
+    $removed = $false
+    for ($try = 1; $try -le 3 -and -not $removed; $try++) {
         try {
-            Remove-Item -Recurse -Force $item
-            Ok "Removed $item"
+            Remove-Item -Recurse -Force $item -ErrorAction Stop
+            $removed = $true
         } catch {
-            Fail "Could not remove '$item' - close PyCharm/VS Code/terminals using it and try again. ($($_.Exception.Message))"
+            $lastError = $_.Exception.Message
+            if ($try -lt 3) {
+                # something grabbed a file again (antivirus scan, IDE indexer) - stop and retry
+                Get-VenvProcesses | Stop-Process -Force -ErrorAction SilentlyContinue
+                Start-Sleep -Seconds 3
+            }
         }
+    }
+    if ($removed) {
+        Ok "Removed $item"
+    } else {
+        $holders = (Get-VenvProcesses | ForEach-Object { "$($_.ProcessName) (PID $($_.Id))" }) -join ", "
+        if (-not $holders) { $holders = "not found - most likely PyCharm or VS Code using .venv as its interpreter" }
+        Fail ("Could not remove '$item' ($lastError)`n" +
+              "        Still in use by: $holders`n" +
+              "        Close PyCharm / VS Code (or switch its interpreter away from .venv) and run the script again.")
     }
 }
 Get-ChildItem -Path . -Recurse -Directory -Filter "__pycache__" -ErrorAction SilentlyContinue |

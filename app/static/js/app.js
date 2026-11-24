@@ -4,13 +4,25 @@ let pastDraws = [];
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
 
+// Every API call says which game it is for (the page is rendered for one game).
+function withGame(url) {
+  return url + (url.includes('?') ? '&' : '?') + 'game=' + encodeURIComponent(GAME.key);
+}
+
 async function api(url, options) {
-  const res = await fetch(url, options);
+  const res = await fetch(withGame(url), options);
   let data = {};
   try { data = await res.json(); } catch (e) { /* non-JSON error page */ }
   if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
   return data;
 }
+
+/* ---------------- Game picker ---------------- */
+$('gameSelect').addEventListener('change', e => {
+  const url = new URL(window.location.href);
+  url.searchParams.set('game', e.target.value);
+  window.location.href = url.toString();   // re-renders the page for that game
+});
 
 /* ---------------- Upload data ---------------- */
 let chosenFile = null;

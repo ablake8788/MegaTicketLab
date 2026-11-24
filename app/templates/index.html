@@ -2,11 +2,13 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>{{ game.title }} Ticket Lab</title>
+  <title>Mega Ticket Lab · {{ game.title }}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
 </head>
 <body>
-<header><div><span class="eyebrow">NUMBER GENERATION LAB</span><h1>{{ game.title }} Ticket Lab</h1><p>Generate diversified tickets and compare them with a drawing.</p></div><div class="badge">{{ game.badge }}</div></header>
+<header><div><span class="eyebrow">NUMBER GENERATION LAB</span><h1>Mega Ticket Lab</h1><p>Generate diversified tickets and compare them with a drawing.</p></div>
+  <div class="game-picker"><label for="gameSelect">Game</label><select id="gameSelect">{% for g in games %}<option value="{{ g.key }}"{% if g.key == game.key %} selected{% endif %}>{{ g.title }}</option>{% endfor %}</select><div class="badge">{{ game.badge }}</div></div>
+</header>
 <main>
 <section class="panel upload-panel">
   <div class="step-head"><span class="step">1</span><h2>Upload data</h2></div>
@@ -68,7 +70,7 @@
 </section>
 <section class="panel"><div class="section-head"><div><span class="eyebrow">BACKTEST</span><h2>Compare with Winning Numbers</h2></div></div>
   <div class="winning-input" style="margin-bottom:14px"><div style="flex:1"><label for="pastDraw">Or pick a real past drawing</label><select id="pastDraw"><option value="">— choose a date —</option></select></div></div>
-  <div class="winning-input"><div><label>Five white balls</label><div id="whiteInputs" class="white-inputs">{% for i in range(game.white_count) %}<input type="number" min="1" max="{{ game.white_max }}" placeholder="#{{ i+1 }}">{% endfor %}</div></div><div><label>{{ game.bonus_name }}</label><input id="winningMega" type="number" min="1" max="{{ game.bonus_max }}" placeholder="{{ game.bonus_short }}"></div><button id="compare" class="secondary">Compare</button></div>
+  <div class="winning-input"><div><label>{{ game.white_count }} white balls</label><div id="whiteInputs" class="white-inputs">{% for i in range(game.white_count) %}<input type="number" min="1" max="{{ game.white_max }}" placeholder="#{{ i+1 }}">{% endfor %}</div></div><div><label>{{ game.bonus_name }}</label><input id="winningMega" type="number" min="1" max="{{ game.bonus_max }}" placeholder="{{ game.bonus_short }}"></div><button id="compare" class="secondary">Compare</button></div>
   <div id="message"></div>
 </section>
 </main>

@@ -1,6 +1,8 @@
 """
-Loads draw history for the game selected in config.ini ([game] name) and
-exposes hot / overdue / pair / bonus-ball data the strategies can use.
+Loads draw history for each game (Mega Millions, Powerball) and exposes
+hot / overdue / pair / bonus-ball data the strategies can use. Every game
+has its own data file, cache and uploaded-file choice, so the page can switch
+games at any time. Calls without a game use config.ini's [game] name.
 
 Accepted data files (config.ini [data]):
   * .xlsx - needs a "Draw History" sheet (Draw Date | Ball 1..5 | bonus ball).
@@ -40,50 +42,59 @@ _DATE_FORMATS = ("%m/%d/%Y", "%Y-%m-%d", "%m/%d/%y", "%m-%d-%Y", "%Y/%m/%d")
 
 class HistoricalDataLoader:
     _lock = threading.Lock()
-    _cache = None  # populated on first load()
-    # Set by the "Upload data" section: {"path", "name", "sheet", "uploaded"}.
-    # None = use the file named in config.ini.
-    _override = None
+    _cache = {}     # game key -> loaded data
+    # Set by the "Upload data" section, per game: {"path", "name", "sheet", "uploaded"}.
+    # No entry = use the game's file from config.ini.
+    _override = {}
+
+    @staticmethod
+    def _game(game):
+        return game or Config.GAME
 
     @classmethod
-    def load(cls, force_reload: bool = False) -> dict:
+    def load(cls, game=None, force_reload: bool = False) -> dict:
         """Returns a dict with hot_numbers, overdue_numbers, top_pairs,
         mega_weights (bonus ball -> weight), draw_history and a 'source'
         flag: 'workbook' (data file read) or 'fallback'."""
+        game = cls._game(game)
         with cls._lock:
-            if cls._cache is not None and not force_reload:
-                return cls._cache
-            cls._cache = cls._load_from_file()
-            return cls._cache
+            if game.key in cls._cache and not force_reload:
+                return cls._cache[game.key]
+            cls._cache[game.key] = cls._load_from_file(game)
+            return cls._cache[game.key]
 
     # ------------------------------------------------- upload / sheet choice
     @classmethod
-    def current_file(cls) -> dict:
-        """The data file in use: an uploaded one, or the config.ini one."""
-        if cls._override:
-            return dict(cls._override)
-        return {"path": Config.DATA_PATH, "name": Config.DATA_PATH.name, "sheet": None, "uploaded": False}
+    def current_file(cls, game=None) -> dict:
+        """The data file in use for a game: an uploaded one, or the config.ini one."""
+        game = cls._game(game)
+        if game.key in cls._override:
+            return dict(cls._override[game.key])
+        path = Config.data_path(game)
+        return {"path": path, "name": path.name, "sheet": None, "uploaded": False}
 
     @classmethod
-    def use_file(cls, path, name: str, sheet=None, uploaded: bool = True) -> dict:
-        """Switch to another data file (and optionally a sheet) and reload."""
+    def use_file(cls, path, name: str, sheet=None, uploaded: bool = True, game=None) -> dict:
+        """Switch a game to another data file (and optionally a sheet) and reload."""
+        game = cls._game(game)
         with cls._lock:
-            cls._override = {"path": Path(path), "name": name, "sheet": sheet or None, "uploaded": uploaded}
-            cls._cache = None
-        return cls.load()
+            cls._override[game.key] = {"path": Path(path), "name": name, "sheet": sheet or None, "uploaded": uploaded}
+            cls._cache.pop(game.key, None)
+        return cls.load(game)
 
     @classmethod
-    def use_sheet(cls, sheet: str) -> dict:
-        cur = cls.current_file()
-        return cls.use_file(cur["path"], cur["name"], sheet, cur["uploaded"])
+    def use_sheet(cls, sheet: str, game=None) -> dict:
+        cur = cls.current_file(game)
+        return cls.use_file(cur["path"], cur["name"], sheet, cur["uploaded"], game)
 
     @classmethod
-    def reset(cls) -> dict:
-        """Forget any upload / sheet choice and go back to config.ini's file."""
+    def reset(cls, game=None) -> dict:
+        """Forget a game's upload / sheet choice and go back to config.ini's file."""
+        game = cls._game(game)
         with cls._lock:
-            cls._override = None
-            cls._cache = None
-        return cls.load()
+            cls._override.pop(game.key, None)
+            cls._cache.pop(game.key, None)
+        return cls.load(game)
 
     @staticmethod
     def list_sheets(path) -> list:
@@ -101,9 +112,9 @@ class HistoricalDataLoader:
 
     # ------------------------------------------------------------------ load
     @classmethod
-    def _load_from_file(cls) -> dict:
-        cur = cls.current_file()
-        result = cls._load_path(cur["path"], cur["sheet"])
+    def _load_from_file(cls, game) -> dict:
+        cur = cls.current_file(game)
+        result = cls._load_path(cur["path"], cur["sheet"], game)
         result.update({
             "data_file": str(cur["path"]),
             "file_name": cur["name"],
@@ -114,11 +125,11 @@ class HistoricalDataLoader:
         return result
 
     @classmethod
-    def _load_path(cls, path, sheet=None) -> dict:
+    def _load_path(cls, path, sheet=None, game=None) -> dict:
         path = Path(path)
-        game = Config.GAME
+        game = cls._game(game)
         if not path.exists():
-            return cls._fallback(f"data file not found at {path}")
+            return cls._fallback(f"data file not found at {path}", game)
 
         try:
             if path.suffix.lower() == ".csv":
@@ -127,20 +138,20 @@ class HistoricalDataLoader:
             else:
                 draws, skipped, precomputed, sheet = cls._read_workbook(path, game, sheet)
         except Exception as exc:  # corrupt/locked file, wrong format, etc.
-            out = cls._fallback(f"could not read data file: {exc}")
+            out = cls._fallback(f"could not read data file: {exc}", game)
             out["sheet"] = sheet
             return out
 
         if not draws:
             where = f'sheet "{sheet}"' if sheet else "data file"
-            out = cls._fallback(f"{where} has no valid {game.title} draws ({skipped} row(s) skipped)")
+            out = cls._fallback(f"{where} has no valid {game.title} draws ({skipped} row(s) skipped)", game)
             out.update({"sheet": sheet, "skipped_rows": skipped})
             return out
 
         draws.sort(key=lambda d: d["date"], reverse=True)
         stats = precomputed or cls._compute_stats(cls._windowed(draws), game)
         if not stats["hot_numbers"] or not stats["overdue_numbers"]:
-            return cls._fallback("data file parsed but statistics were empty")
+            return cls._fallback("data file parsed but statistics were empty", game)
 
         return {
             **stats,
@@ -214,8 +225,8 @@ class HistoricalDataLoader:
         for other in GAMES.values():
             if other.key != game.key and other.bonus_name.lower() in text:
                 raise ValueError(
-                    f"this looks like a {other.title} file, but the app is set to "
-                    f"{game.title} (config.ini [game] name)")
+                    f"this looks like a {other.title} file, but {game.title} is selected - "
+                    f"switch the game at the top of the page or upload a {game.title} file")
 
     @classmethod
     def _rows_to_draws(cls, rows, game):
@@ -315,8 +326,8 @@ class HistoricalDataLoader:
 
     # ----------------------------------------------------------------- fallback
     @staticmethod
-    def _fallback(reason: str) -> dict:
-        game = Config.GAME
+    def _fallback(reason: str, game=None) -> dict:
+        game = game or Config.GAME
         mega = game.key == "mega_millions"
         return {
             "hot_numbers": list(_FALLBACK_HOT) if mega else [],
