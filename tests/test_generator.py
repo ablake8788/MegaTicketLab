@@ -8,14 +8,25 @@ from app.services.ticket_service import TicketService
 
 @pytest.fixture(autouse=True)
 def _reset_loader():
+    HistoricalDataLoader._cache = {}
+    HistoricalDataLoader._override = {}
     yield
-    HistoricalDataLoader._cache = None
+    HistoricalDataLoader._cache = {}
+    HistoricalDataLoader._override = {}
 
 
 def use_game(monkeypatch, key, path):
+    """Make `key` the default game and point every game's data file at `path`."""
     monkeypatch.setattr(Config, "GAME", GAMES[key])
+    monkeypatch.setattr(Config, "DATA_PATHS", {k: path for k in GAMES})
     monkeypatch.setattr(Config, "DATA_PATH", path)
-    HistoricalDataLoader._cache = None
+    HistoricalDataLoader._cache = {}
+    HistoricalDataLoader._override = {}
+
+
+def set_history(monkeypatch, data, key=None):
+    """Pretend `data` was loaded for the default game (or `key`)."""
+    monkeypatch.setattr(HistoricalDataLoader, "_cache", {key or Config.GAME.key: data})
 
 
 @pytest.mark.parametrize("key", ["mega_millions", "powerball"])
@@ -89,7 +100,7 @@ def test_powerball_xlsx_and_year_window(monkeypatch, tmp_path):
 
 def test_mega_ball_25_is_never_generated(monkeypatch, tmp_path):
     use_game(monkeypatch, "mega_millions", tmp_path / "missing.xlsx")
-    monkeypatch.setattr(HistoricalDataLoader, "_cache",
+    set_history(monkeypatch,
                         {"hot_numbers": [1], "overdue_numbers": [2], "top_pairs": [(1, 2)],
                          "mega_weights": {24: 1, 25: 10_000}, "draw_history": [], "source": "workbook"})
     tickets = TicketService(GAMES["mega_millions"]).generate_tickets(100, "model")
@@ -108,8 +119,7 @@ def _client(monkeypatch, tmp_path, key="powerball"):
     import app.routes.api as api
     use_game(monkeypatch, key, tmp_path / "builtin_missing.xlsx")
     monkeypatch.setattr(Config, "UPLOAD_FOLDER", tmp_path / "uploads")
-    monkeypatch.setattr(api.service, "game", GAMES[key])
-    monkeypatch.setattr(HistoricalDataLoader, "_override", None)
+    monkeypatch.setattr(HistoricalDataLoader, "_override", {})
     return create_app().test_client()
 
 
@@ -181,7 +191,7 @@ def test_search_returns_only_tickets_meeting_target(monkeypatch, tmp_path, strat
     rng = secrets.SystemRandom()
     draws = [{"date": f"2026-01-{i:02d}", "white_numbers": sorted(rng.sample(range(1, 70), 5)),
               "mega_ball": rng.randint(1, 26)} for i in range(1, 29)] * 10
-    monkeypatch.setattr(HistoricalDataLoader, "_cache",
+    set_history(monkeypatch,
                         {"hot_numbers": draws[0]["white_numbers"], "overdue_numbers": draws[1]["white_numbers"],
                          "top_pairs": [tuple(draws[0]["white_numbers"][:2])],
                          "mega_weights": {}, "draw_history": draws, "source": "workbook"})
@@ -211,7 +221,7 @@ def test_hot_games_follow_the_rules(monkeypatch, tmp_path, games, white_pool, bo
     draws = [{"date": f"2026-{1 + i // 28:02d}-{1 + i % 28:02d}", "white_numbers": sorted(rng.sample(range(1, 70), 5)),
               "mega_ball": rng.randint(1, 26)} for i in range(200)]
     draws.sort(key=lambda d: d["date"], reverse=True)
-    monkeypatch.setattr(HistoricalDataLoader, "_cache", {"hot_numbers": [1], "overdue_numbers": [2], "top_pairs": [],
+    set_history(monkeypatch, {"hot_numbers": [1], "overdue_numbers": [2], "top_pairs": [],
                                                          "mega_weights": {}, "draw_history": draws, "source": "workbook"})
     r = HotNumberGames(GAMES["powerball"]).generate(games, white_pool, bonus_pool)
     hot_w = [h["number"] for h in r["hot_white"]]
@@ -238,7 +248,7 @@ def test_hot_games_five_from_ten_share_exactly_two(monkeypatch, tmp_path):
     use_game(monkeypatch, "powerball", tmp_path / "missing.xlsx")
     draws = [{"date": f"2026-01-{i:02d}", "white_numbers": [i, i + 10, i + 20, i + 30, i + 40], "mega_ball": i}
              for i in range(1, 25)]
-    monkeypatch.setattr(HistoricalDataLoader, "_cache", {"hot_numbers": [1], "overdue_numbers": [2], "top_pairs": [],
+    set_history(monkeypatch, {"hot_numbers": [1], "overdue_numbers": [2], "top_pairs": [],
                                                          "mega_weights": {}, "draw_history": draws, "source": "workbook"})
     for _ in range(5):
         r = HotNumberGames(GAMES["powerball"]).generate(5, 10, 5)
@@ -262,7 +272,7 @@ def _history(monkeypatch, tmp_path, n=120):
     draws = [{"date": f"2026-{1 + i // 28:02d}-{1 + i % 28:02d}", "white_numbers": sorted(rng.sample(range(1, 70), 5)),
               "mega_ball": rng.randint(1, 26)} for i in range(n)]
     draws.sort(key=lambda d: d["date"], reverse=True)
-    monkeypatch.setattr(HistoricalDataLoader, "_cache", {"hot_numbers": [1], "overdue_numbers": [2], "top_pairs": [],
+    set_history(monkeypatch, {"hot_numbers": [1], "overdue_numbers": [2], "top_pairs": [],
                                                          "mega_weights": {}, "draw_history": draws, "source": "workbook"})
     return draws
 
@@ -326,3 +336,57 @@ def test_suggest_api(monkeypatch, tmp_path):
     r = c.get("/api/suggest?games=3&ai=0").get_json()
     assert r["source"] == "builtin" and len(r["tickets"]) == 3 and r["note"] is None
     assert c.get("/api/ai-status").get_json()["available"] is False
+
+
+
+# ------------------------------------------------------------- game switching
+def test_each_game_has_its_own_data_and_upload(monkeypatch, tmp_path):
+    import io
+    c = _client(monkeypatch, tmp_path, key="mega_millions")
+    pb = tmp_path / "pb.xlsx"; _pb_workbook(pb)
+
+    # upload a Powerball file for Powerball only
+    s = c.post("/api/data/upload?game=powerball", data={"file": (io.BytesIO(pb.read_bytes()), "pb.xlsx"), "sheet": "download"},
+               content_type="multipart/form-data").get_json()
+    assert s["game"] == "powerball" and s["source"] == "workbook" and s["draws_loaded"] == 2
+    # Mega Millions (the default here) is untouched
+    mm = c.get("/api/data").get_json()
+    assert mm["game"] == "mega_millions" and not mm["uploaded"]
+    assert c.get("/api/draws?game=powerball").get_json()["draws"][0]["mega_ball"] == 1
+    # the same Powerball file is refused for Mega Millions
+    s = c.post("/api/data/upload?game=mega_millions", data={"file": (io.BytesIO(pb.read_bytes()), "pb.xlsx"), "sheet": "download"},
+               content_type="multipart/form-data").get_json()
+    assert s["source"] == "fallback" and "Powerball file" in s["reason"]
+    # reset only affects its own game
+    c.post("/api/data/reset?game=mega_millions")
+    assert c.get("/api/data?game=powerball").get_json()["uploaded"]
+
+
+@pytest.mark.parametrize("key,wmax,bmax", [("mega_millions", 70, 24), ("powerball", 69, 26)])
+def test_endpoints_use_the_selected_game(monkeypatch, tmp_path, key, wmax, bmax):
+    c = _client(monkeypatch, tmp_path, key="mega_millions")
+    for strategy in ("random", "model", "v2"):
+        r = c.get(f"/api/tickets?game={key}&count=30&strategy={strategy}").get_json()
+        assert r["game"] == key
+        for t in r["tickets"]:
+            assert max(t["white_numbers"]) <= wmax and 1 <= t["mega_ball"] <= bmax
+    g = c.get(f"/api/game?game={key}").get_json()
+    assert g["key"] == key and g["white_max"] == wmax and g["bonus_max"] == bmax
+    bad = c.post(f"/api/compare?game={key}", json={"tickets": [], "winning_white": [1, 2, 3, 4, 5], "winning_mega": bmax + 1})
+    assert bad.status_code == 400
+
+
+def test_unknown_game_is_refused(monkeypatch, tmp_path):
+    c = _client(monkeypatch, tmp_path)
+    r = c.get("/api/tickets?game=lotto_max")
+    assert r.status_code == 400 and "Unknown game" in r.get_json()["error"]
+
+
+def test_page_switches_game_and_remembers_it(monkeypatch, tmp_path):
+    c = _client(monkeypatch, tmp_path, key="mega_millions")
+    html = c.get("/").get_data(as_text=True)
+    assert 'value="mega_millions" selected' in html and "Mega Ball" in html
+    html = c.get("/?game=powerball").get_data(as_text=True)
+    assert 'value="powerball" selected' in html and 'max="69"' in html
+    html = c.get("/").get_data(as_text=True)                    # remembered by cookie
+    assert 'value="powerball" selected' in html

@@ -59,7 +59,7 @@ class HistorySearch:
         if min_white not in HistoryMatcher.LEVELS:
             raise ValueError("Target must be 3, 4 or 5 white balls.")
 
-        draws = HistoricalDataLoader.load()["draw_history"]
+        draws = HistoricalDataLoader.load(self.game)["draw_history"]
         if not draws:
             raise ValueError("No historical draws are loaded - upload a draw-history file first.")
 

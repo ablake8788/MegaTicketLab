@@ -5,13 +5,13 @@ from .base import TicketGenerationStrategy
 
 class HistoricalModelStrategy(TicketGenerationStrategy):
     """Leans on real hot/overdue numbers calculated from the draw history
-    (see config.ini for the data file). This is a selection heuristic only;
+    of the selected game. This is a selection heuristic only;
     it does not change the mathematical probability of any future drawing.
     """
 
     def generate(self):
         g = self.game
-        data = HistoricalDataLoader.load()
+        data = HistoricalDataLoader.load(g)
         core = list(dict.fromkeys(data["hot_numbers"] + data["overdue_numbers"]))
         core = [n for n in core if 1 <= n <= g.white_max]
 

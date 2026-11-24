@@ -2,7 +2,7 @@ import configparser
 import tempfile
 from pathlib import Path
 
-from app.games import get_game
+from app.games import GAMES, get_game
 
 # Project root is two levels up from this file (app/config.py -> project root)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -18,26 +18,38 @@ def _load_ini() -> configparser.ConfigParser:
 
 _ini = _load_ini()
 
+_folder = Path(_ini.get("data", "folder", fallback="data"))
+_DATA_FOLDER = _folder if _folder.is_absolute() else (PROJECT_ROOT / _folder)
+
+
+def _data_paths(folder: Path) -> dict:
+    """game key -> its draw-history file from config.ini [data]."""
+    return {
+        key: folder / (
+            _ini.get("data", f"{key}_filename", fallback=None)
+            # the old single "filename" key still works for Mega Millions
+            or (_ini.get("data", "filename", fallback=None) if key == "mega_millions" else None)
+            or g.default_filename
+        )
+        for key, g in GAMES.items()
+    }
+
 
 class Config:
     JSON_SORT_KEYS = False
 
-    # --- [game] ---
+    # --- [game] ---  default game when the page or an API call names none
     GAME = get_game(_ini.get("game", "name", fallback="mega_millions"))
 
-    # --- [data] ---
-    _data_folder = _ini.get("data", "folder", fallback="data")
-    # Per-game file name; the old single "filename" key still works for Mega Millions.
-    _data_filename = (
-        _ini.get("data", f"{GAME.key}_filename", fallback=None)
-        or (_ini.get("data", "filename", fallback=None) if GAME.key == "mega_millions" else None)
-        or GAME.default_filename
-    )
+    # --- [data] ---  each game has its own draw-history file
+    DATA_FOLDER = _DATA_FOLDER
+    DATA_PATHS = _data_paths(_DATA_FOLDER)
+    DATA_PATH = DATA_PATHS[GAME.key]          # default game's file
+    DATA_FILENAME = DATA_PATH.name
 
-    _folder_path = Path(_data_folder)
-    DATA_FOLDER = _folder_path if _folder_path.is_absolute() else (PROJECT_ROOT / _folder_path)
-    DATA_FILENAME = _data_filename
-    DATA_PATH = DATA_FOLDER / DATA_FILENAME
+    @classmethod
+    def data_path(cls, game=None) -> Path:
+        return cls.DATA_PATHS[(game or cls.GAME).key]
 
     YEARS = _ini.getint("data", "years", fallback=0)
     HOT_COUNT = _ini.getint("data", "hot_count", fallback=12)

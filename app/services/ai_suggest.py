@@ -236,14 +236,14 @@ def _parse_claude(text: str, stats: dict, games: int) -> dict:
 
 
 # ================================================================== public
-def suggest(games: int = 5, use_ai: bool = True) -> dict:
+def suggest(games: int = 5, use_ai: bool = True, game=None) -> dict:
     if not 1 <= games <= MAX_GAMES:
         raise ValueError(f"Games must be between 1 and {MAX_GAMES}.")
-    draws = HistoricalDataLoader.load()["draw_history"]
+    game = game or Config.GAME
+    draws = HistoricalDataLoader.load(game)["draw_history"]
     if len(draws) < 10:
         raise ValueError("Not enough draw history loaded - upload a draw-history file first.")
 
-    game = Config.GAME
     stats = history_stats(draws, game)
     status = ai_status()
     result = builtin_suggestion(stats, games)

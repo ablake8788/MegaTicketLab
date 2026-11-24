@@ -11,7 +11,7 @@ class V2PortfolioStrategy(TicketGenerationStrategy):
 
     def generate(self):
         g = self.game
-        data = HistoricalDataLoader.load()
+        data = HistoricalDataLoader.load(g)
         pairs = [p for p in data["top_pairs"] if max(p) <= g.white_max]
         overdue = data["overdue_numbers"]
 

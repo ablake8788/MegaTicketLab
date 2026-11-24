@@ -571,3 +571,22 @@ button:disabled {
   max-width:360px;
   text-align:right;
 }
+
+
+/* ---------- Game picker (header) ---------- */
+.game-picker {
+  display:flex;
+  align-items:center;
+  gap:10px;
+  flex-wrap:wrap;
+}
+
+.game-picker label {
+  margin:0;
+}
+
+.game-picker select {
+  min-width:170px;
+  padding:10px 12px;
+  font-weight:700;
+}

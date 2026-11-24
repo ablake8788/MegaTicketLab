@@ -40,7 +40,7 @@ class HotNumberGames:
         if not 1 <= bonus_pool <= g.bonus_max:
             raise ValueError(f"Top {g.bonus_name}s must be between 1 and {g.bonus_max}.")
 
-        data = HistoricalDataLoader.load()
+        data = HistoricalDataLoader.load(g)
         draws = data["draw_history"]
         if not draws:
             raise ValueError("No historical draws are loaded - upload a draw-history file first.")
